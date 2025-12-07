@@ -4,10 +4,11 @@
  * Generate Firebase App Hosting bundle for Remix projects
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { generateBundle, serializeBundle } from "./bundle.js";
+import { createSecureDirectory, sanitizePath, validateRemixProject } from "./validation.js";
 
 import type { FiremixConfig } from "./types.js";
 
@@ -30,8 +31,12 @@ Examples:
 `);
 }
 
-function parseArgs(args: string[]): FiremixConfig & { help?: boolean } {
-  const config: FiremixConfig & { help?: boolean } = {};
+interface ParsedArgs extends FiremixConfig {
+  help?: boolean;
+}
+
+function parseArgs(args: string[], projectRoot: string): ParsedArgs {
+  const config: ParsedArgs = {};
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -44,14 +49,26 @@ function parseArgs(args: string[]): FiremixConfig & { help?: boolean } {
         break;
       case "--output":
       case "-o":
-        config.outputDir = next;
+        if (!next || next.startsWith("-")) {
+          throw new Error("--output requires a directory name");
+        }
+        // Validate path to prevent traversal attacks
+        config.outputDir = sanitizePath(next, projectRoot);
         i++;
         break;
       case "--build":
       case "-b":
+        if (!next || next.startsWith("-")) {
+          throw new Error("--build requires a directory name");
+        }
+        // buildDir is validated in generateBundle via sanitizeBuildDir
         config.buildDir = next;
         i++;
         break;
+      default:
+        if (arg.startsWith("-")) {
+          throw new Error(`Unknown option: ${arg}`);
+        }
     }
   }
 
@@ -59,37 +76,33 @@ function parseArgs(args: string[]): FiremixConfig & { help?: boolean } {
 }
 
 function main(): void {
-  const args = process.argv.slice(2);
-  const config = parseArgs(args);
-
-  if (config.help) {
-    printHelp();
-    process.exit(0);
-  }
-
   const projectRoot = resolve(process.cwd());
-  const outputDir = config.outputDir || ".apphosting";
-
-  console.log("\n🔥 Firemix: Generating Firebase App Hosting bundle...\n");
-
-  // Check if this looks like a Remix project
-  const packageJsonPath = join(projectRoot, "package.json");
-  if (!existsSync(packageJsonPath)) {
-    console.error("❌ Error: No package.json found in current directory");
-    process.exit(1);
-  }
 
   try {
+    const args = process.argv.slice(2);
+    const config = parseArgs(args, projectRoot);
+
+    if (config.help) {
+      printHelp();
+      process.exit(0);
+    }
+
+    console.log("\n🔥 Firemix: Generating Firebase App Hosting bundle...\n");
+
+    // Validate this is a Remix project
+    validateRemixProject(projectRoot);
+
+    const outputDir = config.outputDir || ".apphosting";
     const bundle = generateBundle(projectRoot, config);
     const yaml = serializeBundle(bundle);
 
     const outputPath = join(projectRoot, outputDir);
-    if (!existsSync(outputPath)) {
-      mkdirSync(outputPath, { recursive: true });
-    }
+
+    // Secure directory creation (prevents symlink attacks)
+    createSecureDirectory(outputPath);
 
     const bundlePath = join(outputPath, "bundle.yaml");
-    writeFileSync(bundlePath, yaml, "utf-8");
+    writeFileSync(bundlePath, yaml, { encoding: "utf-8", mode: 0o644 });
 
     console.log(`✅ Generated ${outputDir}/bundle.yaml`);
     console.log("\nBundle configuration:");
@@ -102,7 +115,12 @@ function main(): void {
     console.log("\n🚀 Ready for Firebase App Hosting deployment!\n");
   } catch (error) {
     console.error("❌ Failed to generate bundle.yaml");
-    console.error(error);
+    console.error(error instanceof Error ? error.message : "Unknown error");
+
+    if (process.env.DEBUG) {
+      console.error("\nFull error:", error);
+    }
+
     process.exit(1);
   }
 }

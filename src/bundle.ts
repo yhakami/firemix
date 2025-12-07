@@ -4,25 +4,23 @@
  */
 
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import type { BundleYaml, FiremixConfig, RunConfig } from "./types.js";
+import type { BundleYaml, FiremixConfig } from "./types.js";
+import { checkFileSize, sanitizeBuildDir, validateRunConfig } from "./validation.js";
 
-const DEFAULT_RUN_CONFIG: Required<RunConfig> = {
-  minInstances: 0,
-  maxInstances: 10,
-  concurrency: 80,
-  cpu: 1,
-  memoryMiB: 512,
-};
+// ESM equivalent of __dirname
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Get the adapter version from package.json
  */
 function getAdapterVersion(): string {
   try {
-    const pkgPath = join(import.meta.dirname, "..", "package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    const pkgPath = join(__dirname, "..", "package.json");
+    checkFileSize(pkgPath);
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { version?: string };
     return pkg.version || "0.1.0";
   } catch {
     return "0.1.0";
@@ -35,13 +33,32 @@ function getAdapterVersion(): string {
 function getRemixVersion(projectRoot: string): string | undefined {
   try {
     const pkgPath = join(projectRoot, "package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    return (
+    checkFileSize(pkgPath);
+
+    const content = readFileSync(pkgPath, "utf-8");
+    const pkg = JSON.parse(content) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+
+    if (typeof pkg !== "object" || pkg === null) {
+      console.warn("Invalid package.json: not an object");
+      return undefined;
+    }
+
+    const version =
       pkg.dependencies?.["@remix-run/node"] ||
       pkg.dependencies?.["@remix-run/react"] ||
-      pkg.devDependencies?.["@remix-run/dev"]
-    );
-  } catch {
+      pkg.devDependencies?.["@remix-run/dev"];
+
+    if (version && typeof version !== "string") {
+      console.warn("Invalid Remix version format in package.json");
+      return undefined;
+    }
+
+    return version;
+  } catch (error) {
+    console.warn(`Failed to read Remix version: ${error instanceof Error ? error.message : "Unknown error"}`);
     return undefined;
   }
 }
@@ -49,12 +66,12 @@ function getRemixVersion(projectRoot: string): string | undefined {
 /**
  * Generate the bundle.yaml content
  */
-export function generateBundle(
-  projectRoot: string,
-  config: FiremixConfig = {}
-): BundleYaml {
-  const buildDir = config.buildDir || "build";
-  const runConfig = { ...DEFAULT_RUN_CONFIG, ...config.runConfig };
+export function generateBundle(projectRoot: string, config: FiremixConfig = {}): BundleYaml {
+  // Validate and sanitize buildDir
+  const buildDir = sanitizeBuildDir(config.buildDir || "build");
+
+  // Validate runConfig numeric values
+  const runConfig = validateRunConfig(config.runConfig || {});
 
   return {
     version: "v1",
@@ -84,6 +101,18 @@ export function generateBundle(
 }
 
 /**
+ * Escape a string for safe YAML output
+ */
+function escapeYamlValue(value: string): string {
+  // If the value contains special characters, quote it
+  if (/[:#\[\]{},"'|>&*!?\\]/.test(value) || value.includes("\n")) {
+    // Escape backslashes and double quotes, then wrap in double quotes
+    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  }
+  return value;
+}
+
+/**
  * Serialize bundle to YAML string
  */
 export function serializeBundle(bundle: BundleYaml): string {
@@ -94,7 +123,7 @@ export function serializeBundle(bundle: BundleYaml): string {
     `version: ${bundle.version}`,
     "",
     "runConfig:",
-    `  runCommand: ${bundle.runConfig.runCommand}`,
+    `  runCommand: ${escapeYamlValue(bundle.runConfig.runCommand)}`,
     `  concurrency: ${bundle.runConfig.concurrency}`,
     `  cpu: ${bundle.runConfig.cpu}`,
     `  memoryMiB: ${bundle.runConfig.memoryMiB}`,
@@ -104,26 +133,24 @@ export function serializeBundle(bundle: BundleYaml): string {
     "outputFiles:",
     "  serverApp:",
     "    include:",
-    ...bundle.outputFiles.serverApp.include.map((p) => `      - ${p}`),
+    ...bundle.outputFiles.serverApp.include.map((p) => `      - ${escapeYamlValue(p)}`),
   ];
 
   if (bundle.outputFiles.staticAssets) {
     lines.push("  staticAssets:", "    include:");
-    lines.push(
-      ...bundle.outputFiles.staticAssets.include.map((p) => `      - ${p}`)
-    );
+    lines.push(...bundle.outputFiles.staticAssets.include.map((p) => `      - ${escapeYamlValue(p)}`));
   }
 
   lines.push(
     "",
     "metadata:",
-    `  adapterPackageName: ${bundle.metadata.adapterPackageName}`,
-    `  adapterVersion: ${bundle.metadata.adapterVersion}`,
-    `  framework: ${bundle.metadata.framework}`
+    `  adapterPackageName: ${escapeYamlValue(bundle.metadata.adapterPackageName)}`,
+    `  adapterVersion: ${escapeYamlValue(bundle.metadata.adapterVersion)}`,
+    `  framework: ${escapeYamlValue(bundle.metadata.framework)}`
   );
 
   if (bundle.metadata.frameworkVersion) {
-    lines.push(`  frameworkVersion: "${bundle.metadata.frameworkVersion}"`);
+    lines.push(`  frameworkVersion: ${escapeYamlValue(bundle.metadata.frameworkVersion)}`);
   }
 
   return lines.join("\n") + "\n";

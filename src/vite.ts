@@ -3,17 +3,18 @@
  * Automatically generates .apphosting/bundle.yaml after Remix build
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { generateBundle, serializeBundle } from "./bundle.js";
+import { createSecureDirectory, sanitizePath } from "./validation.js";
 
-import type { Plugin } from "vite";
+import type { Plugin, ResolvedConfig } from "vite";
 import type { FiremixConfig } from "./types.js";
 
 export interface FiremixPluginOptions extends FiremixConfig {
   /**
-   * Whether to generate bundle.yaml (default: true in production build)
+   * Whether to generate bundle.yaml (default: true in build mode)
    */
   enabled?: boolean;
 }
@@ -34,40 +35,51 @@ export interface FiremixPluginOptions extends FiremixConfig {
  * ```
  */
 export function firemix(options: FiremixPluginOptions = {}): Plugin {
-  const outputDir = options.outputDir || ".apphosting";
   let projectRoot: string;
+  let isBuildMode = false;
 
   return {
     name: "firemix",
 
-    configResolved(config) {
+    configResolved(config: ResolvedConfig) {
       projectRoot = config.root;
+      isBuildMode = config.command === "build";
     },
 
     closeBundle() {
       // Only run in build mode (not dev server)
-      const enabled = options.enabled ?? process.env.NODE_ENV === "production";
+      const enabled = options.enabled ?? isBuildMode;
       if (!enabled) return;
 
       console.log("\n🔥 Firemix: Generating Firebase App Hosting bundle...");
 
       try {
+        // Validate and sanitize outputDir
+        const outputDir = options.outputDir
+          ? sanitizePath(options.outputDir, projectRoot)
+          : ".apphosting";
+
         const bundle = generateBundle(projectRoot, options);
         const yaml = serializeBundle(bundle);
 
         const outputPath = join(projectRoot, outputDir);
-        if (!existsSync(outputPath)) {
-          mkdirSync(outputPath, { recursive: true });
-        }
+
+        // Secure directory creation (prevents symlink attacks)
+        createSecureDirectory(outputPath);
 
         const bundlePath = join(outputPath, "bundle.yaml");
-        writeFileSync(bundlePath, yaml, "utf-8");
+        writeFileSync(bundlePath, yaml, { encoding: "utf-8", mode: 0o644 });
 
         console.log(`✅ Firemix: Generated ${outputDir}/bundle.yaml`);
         console.log("   Ready for Firebase App Hosting deployment!\n");
       } catch (error) {
         console.error("❌ Firemix: Failed to generate bundle.yaml");
-        console.error(error);
+        console.error(error instanceof Error ? error.message : "Unknown error");
+
+        if (process.env.DEBUG) {
+          console.error("Full error:", error);
+        }
+
         throw error;
       }
     },
