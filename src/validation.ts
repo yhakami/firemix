@@ -4,11 +4,112 @@
  */
 
 import { isAbsolute, normalize, relative, join } from "node:path";
-import { statSync, lstatSync, existsSync, mkdirSync } from "node:fs";
+import { statSync, lstatSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 
 import type { RunConfig } from "./types.js";
 
-const MAX_PACKAGE_JSON_SIZE = 1024 * 1024; // 1MB
+const MAX_PACKAGE_JSON_SIZE = 100 * 1024; // 100KB (reduced from 1MB)
+const MAX_DEV_DEPENDENCIES = 1000; // Reasonable upper limit to prevent DoS
+
+interface ParsedPackageJson {
+  name?: string;
+  version?: string;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}
+
+/**
+ * Validate an npm package name to prevent path traversal attacks
+ */
+export function validatePackageName(name: string): void {
+  if (!name || typeof name !== "string") {
+    throw new Error("Package name must be a non-empty string");
+  }
+
+  if (name.length > 214) {
+    throw new Error(`Package name too long: ${name.slice(0, 50)}...`);
+  }
+
+  // Reject path traversal attempts
+  if (name.includes("..") || name.includes("/..") || name.includes("\\")) {
+    throw new Error(`Invalid package name (path traversal attempt): ${name}`);
+  }
+
+  // Reject names that start with . or _ (npm restriction)
+  if (name.startsWith(".") || name.startsWith("_")) {
+    throw new Error(`Invalid package name (cannot start with . or _): ${name}`);
+  }
+
+  // Handle scoped packages: @scope/name
+  if (name.startsWith("@")) {
+    const parts = name.slice(1).split("/");
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      throw new Error(`Invalid scoped package name: ${name}`);
+    }
+    // Validate each part
+    const validPart = /^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/i;
+    if (!validPart.test(parts[0]) || !validPart.test(parts[1])) {
+      throw new Error(`Invalid scoped package name format: ${name}`);
+    }
+  } else {
+    // Regular package: only alphanumeric, dash, underscore, dot
+    const validPattern = /^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/i;
+    if (!validPattern.test(name)) {
+      throw new Error(`Invalid package name format: ${name}`);
+    }
+  }
+}
+
+/**
+ * Check if an object is a valid dependencies map
+ */
+function isValidDependencyObject(obj: unknown): obj is Record<string, string> {
+  if (typeof obj !== "object" || obj === null || Array.isArray(obj)) {
+    return false;
+  }
+
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof key !== "string" || typeof value !== "string") {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Safely parse package.json with prototype pollution protection
+ */
+export function safeParsePackageJson(pkgPath: string): ParsedPackageJson {
+  checkFileSize(pkgPath);
+
+  const content = readFileSync(pkgPath, "utf-8");
+  const parsed: unknown = JSON.parse(content);
+
+  // Validate it's an object
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("Invalid package.json: must be an object");
+  }
+
+  const obj = parsed as Record<string, unknown>;
+
+  // Reject prototype pollution attempts
+  // Use Object.hasOwn to only detect actual properties, not inherited ones
+  const dangerousKeys = ["__proto__", "constructor", "prototype"];
+  for (const key of dangerousKeys) {
+    if (Object.hasOwn(obj, key)) {
+      throw new Error(`Security: package.json contains dangerous key: ${key}`);
+    }
+  }
+
+  // Return only expected fields (whitelist approach)
+  return {
+    name: typeof obj.name === "string" ? obj.name : undefined,
+    version: typeof obj.version === "string" ? obj.version : undefined,
+    dependencies: isValidDependencyObject(obj.dependencies) ? obj.dependencies : undefined,
+    devDependencies: isValidDependencyObject(obj.devDependencies) ? obj.devDependencies : undefined,
+  };
+}
 
 /**
  * Validate and sanitize a path to prevent directory traversal attacks
@@ -174,6 +275,90 @@ export function validateRemixProject(projectRoot: string): void {
     throw new Error("No package.json found. Is this a Remix project?");
   }
 
+  const stats = lstatSync(packageJsonPath);
+
+  if (stats.isSymbolicLink()) {
+    throw new Error("Security: package.json must not be a symlink");
+  }
+
+  if (!stats.isFile()) {
+    throw new Error("Security: package.json is not a file");
+  }
+
   // Check file size
   checkFileSize(packageJsonPath);
+}
+
+/**
+ * Resolve the node_modules path for a package (handles scoped packages)
+ */
+function getNodeModulesPath(projectRoot: string, packageName: string): string {
+  // Scoped packages: @scope/name -> node_modules/@scope/name
+  // Regular packages: name -> node_modules/name
+  return join(projectRoot, "node_modules", packageName);
+}
+
+/**
+ * Ensure devDependencies are not installed to avoid bundling build/test tooling.
+ */
+export function assertNoDevDependenciesInstalled(projectRoot: string, allowDevDependencies?: boolean): void {
+  // Validate type at runtime
+  if (allowDevDependencies !== undefined && typeof allowDevDependencies !== "boolean") {
+    throw new Error(`allowDevDependencies must be a boolean, got: ${typeof allowDevDependencies}`);
+  }
+
+  if (allowDevDependencies === true) {
+    console.warn(
+      "⚠️  WARNING: allowDevDependencies=true - Skipping devDependencies check.\n" +
+        "   Development packages may be bundled. Only use this flag for testing."
+    );
+    return;
+  }
+
+  const pkgPath = join(projectRoot, "package.json");
+  const pkg = safeParsePackageJson(pkgPath);
+
+  const devDeps = Object.keys(pkg.devDependencies ?? {});
+  if (devDeps.length === 0) return;
+
+  // Prevent DoS via excessive dependencies
+  if (devDeps.length > MAX_DEV_DEPENDENCIES) {
+    throw new Error(
+      `Security: Too many devDependencies (${devDeps.length} > ${MAX_DEV_DEPENDENCIES}). ` +
+        `This may indicate a malicious package.json.`
+    );
+  }
+
+  // Validate all package names first (prevent path traversal)
+  for (const dep of devDeps) {
+    validatePackageName(dep);
+  }
+
+  const devPresent = devDeps.filter((dep) => {
+    const depPath = getNodeModulesPath(projectRoot, dep);
+
+    // Defense in depth: verify path didn't escape
+    const nodeModulesBase = join(projectRoot, "node_modules");
+    if (!depPath.startsWith(nodeModulesBase)) {
+      throw new Error(`Security: package path escaped node_modules: ${dep}`);
+    }
+
+    if (!existsSync(depPath)) return false;
+
+    // Use lstatSync to detect symlinks (prevent TOCTOU attacks)
+    const stats = lstatSync(depPath);
+    if (stats.isSymbolicLink()) {
+      throw new Error(`Security: devDependency '${dep}' is a symlink - potential attack vector`);
+    }
+
+    return true;
+  });
+
+  if (devPresent.length > 0) {
+    const count = devPresent.length;
+    throw new Error(
+      `Security: ${count} devDependenc${count === 1 ? "y" : "ies"} present in node_modules. ` +
+        `Run "npm ci --omit=dev" before bundling or set allowDevDependencies=true.`
+    );
+  }
 }

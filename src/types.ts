@@ -18,6 +18,12 @@ export interface FiremixConfig {
    * Remix build output directory (default: "build")
    */
   buildDir?: string;
+
+  /**
+   * Permit packaging when devDependencies are present in node_modules.
+   * Defaults to false to avoid deploying development tooling.
+   */
+  allowDevDependencies?: boolean;
 }
 
 export interface RunConfig {

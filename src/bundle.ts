@@ -8,7 +8,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { BundleYaml, FiremixConfig } from "./types.js";
-import { checkFileSize, sanitizeBuildDir, validateRunConfig } from "./validation.js";
+import {
+  assertNoDevDependenciesInstalled,
+  checkFileSize,
+  safeParsePackageJson,
+  sanitizeBuildDir,
+  validateRunConfig,
+} from "./validation.js";
 
 // ESM equivalent of __dirname
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -33,28 +39,12 @@ function getAdapterVersion(): string {
 function getRemixVersion(projectRoot: string): string | undefined {
   try {
     const pkgPath = join(projectRoot, "package.json");
-    checkFileSize(pkgPath);
-
-    const content = readFileSync(pkgPath, "utf-8");
-    const pkg = JSON.parse(content) as {
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-    };
-
-    if (typeof pkg !== "object" || pkg === null) {
-      console.warn("Invalid package.json: not an object");
-      return undefined;
-    }
+    const pkg = safeParsePackageJson(pkgPath);
 
     const version =
       pkg.dependencies?.["@remix-run/node"] ||
       pkg.dependencies?.["@remix-run/react"] ||
       pkg.devDependencies?.["@remix-run/dev"];
-
-    if (version && typeof version !== "string") {
-      console.warn("Invalid Remix version format in package.json");
-      return undefined;
-    }
 
     return version;
   } catch (error) {
@@ -72,6 +62,9 @@ export function generateBundle(projectRoot: string, config: FiremixConfig = {}):
 
   // Validate runConfig numeric values
   const runConfig = validateRunConfig(config.runConfig || {});
+
+  // Ensure we are not packaging development dependencies unless explicitly allowed
+  assertNoDevDependenciesInstalled(projectRoot, config.allowDevDependencies);
 
   return {
     version: "v1",

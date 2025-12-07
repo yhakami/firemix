@@ -22,6 +22,7 @@ Usage:
 Options:
   --output, -o    Output directory (default: .apphosting)
   --build, -b     Remix build directory (default: build)
+  --allow-dev-deps  Allow bundling when devDependencies are installed (default: false)
   --help, -h      Show this help message
 
 Examples:
@@ -46,6 +47,9 @@ function parseArgs(args: string[], projectRoot: string): ParsedArgs {
       case "--help":
       case "-h":
         config.help = true;
+        break;
+      case "--allow-dev-deps":
+        config.allowDevDependencies = true;
         break;
       case "--output":
       case "-o":

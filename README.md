@@ -68,6 +68,7 @@ firemix --help
 Options:
   --output, -o    Output directory (default: .apphosting)
   --build, -b     Remix build directory (default: build)
+  --allow-dev-deps  Allow bundling when devDependencies are installed (default: false)
   --help, -h      Show help message
 ```
 
@@ -144,7 +145,7 @@ Firebase App Hosting uses the [output bundle specification](https://firebase.goo
 
 ## License
 
-MIT © [Yasser Hakami](https://github.com/yhakami)
+MIT © [Yazeed M.A. Hakami](https://github.com/yhakami)
 
 ---
 

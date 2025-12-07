@@ -7,7 +7,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { generateBundle, serializeBundle } from "./bundle.js";
-import { createSecureDirectory, sanitizePath } from "./validation.js";
+import { createSecureDirectory, sanitizePath, validateRemixProject } from "./validation.js";
 
 import type { Plugin, ResolvedConfig } from "vite";
 import type { FiremixConfig } from "./types.js";
@@ -54,6 +54,9 @@ export function firemix(options: FiremixPluginOptions = {}): Plugin {
       console.log("\n🔥 Firemix: Generating Firebase App Hosting bundle...");
 
       try {
+        // Validate this is a Remix project (same as CLI)
+        validateRemixProject(projectRoot);
+
         // Validate and sanitize outputDir
         const outputDir = options.outputDir
           ? sanitizePath(options.outputDir, projectRoot)
