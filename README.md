@@ -63,7 +63,7 @@ firemix({
   serverBuildFile: "index.js",
 
   // Override the run command for Cloud Run
-  runCommand: "node build/server/index.js",
+  runCommand: "node_modules/.bin/remix-serve build/server/index.js",
 
   // Skip build verification (default: true)
   verify: true,
@@ -157,7 +157,7 @@ Firemix generates a `.apphosting/bundle.yaml` file:
 version: v1
 
 runConfig:
-  runCommand: node build/server/index.js
+  runCommand: node_modules/.bin/remix-serve build/server/index.js
   concurrency: 80
   cpu: 1
   memoryMiB: 512
@@ -176,7 +176,7 @@ outputFiles:
 
 metadata:
   adapterPackageName: firemix
-  adapterVersion: 0.1.0
+  adapterVersion: 0.1.1
   framework: remix
   frameworkVersion: 2.8.1
 ```

@@ -21,22 +21,21 @@ import type { BundleYaml, FiremixConfig, ResolvedRemixConfig } from "./types.js"
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Generate the run command for the server
- * Quotes paths if they contain spaces
+ * Generate the run command for the server.
+ * Default: run remix-serve from local node_modules to spin up an HTTP server.
+ * Quotes paths if they contain spaces.
  */
 function generateRunCommand(config: ResolvedRemixConfig, customCommand?: string): string {
   if (customCommand) {
     return customCommand;
   }
 
+  const remixServeBin = "node_modules/.bin/remix-serve";
   const serverPath = config.serverBuildPath;
 
-  // Quote path if it contains spaces
-  if (serverPath.includes(" ")) {
-    return `node "${serverPath}"`;
-  }
+  const quoteIfNeeded = (value: string) => (value.includes(" ") ? `"${value}"` : value);
 
-  return `node ${serverPath}`;
+  return `${quoteIfNeeded(remixServeBin)} ${quoteIfNeeded(serverPath)}`;
 }
 
 /**

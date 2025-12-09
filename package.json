@@ -1,12 +1,12 @@
 {
   "name": "firemix",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Firebase App Hosting adapter for Remix",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "firemix": "./dist/cli.js"
+    "firemix": "dist/cli.js"
   },
   "exports": {
     ".": {
@@ -42,8 +42,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yhakami/firemix.git"
+    "url": "git+https://github.com/yhakami/firemix.git"
   },
+  "bugs": {
+    "url": "https://github.com/yhakami/firemix/issues"
+  },
+  "homepage": "https://github.com/yhakami/firemix#readme",
   "peerDependencies": {
     "@remix-run/node": ">=2.0.0",
     "vite": ">=7.0.0"

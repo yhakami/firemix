@@ -54,7 +54,7 @@ describe("generateBundle", () => {
     });
 
     expect(bundle.version).toBe("v1");
-    expect(bundle.runConfig.runCommand).toBe("node build/server/index.js");
+    expect(bundle.runConfig.runCommand).toBe("node_modules/.bin/remix-serve build/server/index.js");
     expect(bundle.outputFiles.serverApp.include).toContain("build/server");
     expect(bundle.outputFiles.serverApp.include).toContain("package.json");
     expect(bundle.outputFiles.serverApp.include).toContain("node_modules");
@@ -79,7 +79,7 @@ describe("generateBundle", () => {
       allowDevDependencies: true,
     });
 
-    expect(bundle.runConfig.runCommand).toBe("node dist/server/index.js");
+    expect(bundle.runConfig.runCommand).toBe("node_modules/.bin/remix-serve dist/server/index.js");
     expect(bundle.outputFiles.serverApp.include).toContain("dist/server");
     expect(bundle.outputFiles.staticAssets?.include).toContain("dist/client");
   });
@@ -96,7 +96,7 @@ describe("generateBundle", () => {
       allowDevDependencies: true,
     });
 
-    expect(bundle.runConfig.runCommand).toBe("node custom/server/index.js");
+    expect(bundle.runConfig.runCommand).toBe("node_modules/.bin/remix-serve custom/server/index.js");
     expect(bundle.outputFiles.serverApp.include).toContain("custom/server");
     expect(bundle.outputFiles.staticAssets?.include).toContain("custom/client");
   });
@@ -119,7 +119,7 @@ describe("generateBundle", () => {
       allowDevDependencies: true,
     });
 
-    expect(bundle.runConfig.runCommand).toBe("node build/index.js");
+    expect(bundle.runConfig.runCommand).toBe("node_modules/.bin/remix-serve build/index.js");
     expect(bundle.outputFiles.serverApp.include).toContain("build");
     expect(bundle.outputFiles.staticAssets?.include).toContain("public/build");
   });
@@ -266,7 +266,7 @@ describe("serializeBundle", () => {
     const bundle = {
       version: "v1" as const,
       runConfig: {
-        runCommand: "node build/server/index.js",
+        runCommand: "node_modules/.bin/remix-serve build/server/index.js",
         concurrency: 80,
         cpu: 1,
         memoryMiB: 512,
@@ -283,7 +283,7 @@ describe("serializeBundle", () => {
       },
       metadata: {
         adapterPackageName: "firemix",
-        adapterVersion: "0.1.0",
+        adapterVersion: "0.1.1",
         framework: "remix",
         frameworkVersion: "2.8.1",
       },
@@ -293,7 +293,7 @@ describe("serializeBundle", () => {
     const parsed = load(yaml) as BundleYaml;
 
     expect(parsed.version).toBe("v1");
-    expect(parsed.runConfig.runCommand).toBe("node build/server/index.js");
+    expect(parsed.runConfig.runCommand).toBe("node_modules/.bin/remix-serve build/server/index.js");
     expect(parsed.runConfig.concurrency).toBe(80);
     expect(parsed.runConfig.cpu).toBe(1);
     expect(parsed.runConfig.memoryMiB).toBe(512);
@@ -314,7 +314,7 @@ describe("serializeBundle", () => {
     const bundle = {
       version: "v1" as const,
       runConfig: {
-        runCommand: "node build/server/index.js",
+        runCommand: "node_modules/.bin/remix-serve build/server/index.js",
         concurrency: 80,
         cpu: 1,
         memoryMiB: 512,
@@ -328,7 +328,7 @@ describe("serializeBundle", () => {
       },
       metadata: {
         adapterPackageName: "firemix",
-        adapterVersion: "0.1.0",
+        adapterVersion: "0.1.1",
         framework: "remix",
       },
     };
@@ -345,7 +345,7 @@ describe("serializeBundle", () => {
     const bundle = {
       version: "v1" as const,
       runConfig: {
-        runCommand: "node build/server/index.js",
+        runCommand: "node_modules/.bin/remix-serve build/server/index.js",
         concurrency: 80,
         cpu: 1,
         memoryMiB: 512,
@@ -359,7 +359,7 @@ describe("serializeBundle", () => {
       },
       metadata: {
         adapterPackageName: "firemix",
-        adapterVersion: "0.1.0",
+        adapterVersion: "0.1.1",
         framework: "remix",
         frameworkVersion: undefined,
       },

@@ -34,7 +34,7 @@ export interface FiremixConfig {
 
   /**
    * Override the run command for Cloud Run
-   * Default: "node ${buildDirectory}/server/${serverBuildFile}"
+   * Default: "node_modules/.bin/remix-serve ${buildDirectory}/server/${serverBuildFile}"
    */
   runCommand?: string;
 

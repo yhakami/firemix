@@ -14,7 +14,7 @@ The bundle.yaml follows this schema:
 interface OutputBundle {
   version: "v1"
   runConfig: {
-    runCommand: string           // e.g., "node build/server/index.js"
+    runCommand: string           // e.g., "node_modules/.bin/remix-serve build/server/index.js"
     environmentVariables?: EnvVarConfig[]
     concurrency?: number         // Max concurrent requests per instance
     cpu?: number                 // CPU count per instance
