@@ -10,7 +10,7 @@ Deploy your Remix app to [Firebase App Hosting](https://firebase.google.com/docs
 - **Build verification** - Validates build output before generating bundle
 - **Security hardened** - Path sanitization, symlink detection, prototype pollution protection
 - **Resolved versions** - Reports actual installed Remix version, not semver ranges
-- **Clean bundle** - Proper separation of server and client assets (no overlap)
+- **Ready-to-serve bundle** - Server and client assets packaged together so `remix-serve` can serve static files
 - **Flexible CLI** - Full control via command-line flags
 - **Vite plugin** - Automatic bundle generation on build
 
@@ -168,15 +168,13 @@ outputFiles:
   serverApp:
     include:
       - build/server
+      - build/client
       - package.json
       - node_modules
-  staticAssets:
-    include:
-      - build/client
 
 metadata:
   adapterPackageName: firemix
-  adapterVersion: 0.1.1
+  adapterVersion: 0.1.2
   framework: remix
   frameworkVersion: 2.8.1
 ```

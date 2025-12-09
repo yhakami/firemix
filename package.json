@@ -1,6 +1,6 @@
 {
   "name": "firemix",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Firebase App Hosting adapter for Remix",
   "type": "module",
   "main": "dist/index.js",

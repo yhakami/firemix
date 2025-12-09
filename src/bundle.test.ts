@@ -56,9 +56,9 @@ describe("generateBundle", () => {
     expect(bundle.version).toBe("v1");
     expect(bundle.runConfig.runCommand).toBe("node_modules/.bin/remix-serve build/server/index.js");
     expect(bundle.outputFiles.serverApp.include).toContain("build/server");
+    expect(bundle.outputFiles.serverApp.include).toContain("build/client");
     expect(bundle.outputFiles.serverApp.include).toContain("package.json");
     expect(bundle.outputFiles.serverApp.include).toContain("node_modules");
-    expect(bundle.outputFiles.staticAssets?.include).toContain("build/client");
     expect(bundle.metadata.framework).toBe("remix");
     expect(bundle.metadata.adapterPackageName).toBe("firemix");
   });
@@ -81,7 +81,7 @@ describe("generateBundle", () => {
 
     expect(bundle.runConfig.runCommand).toBe("node_modules/.bin/remix-serve dist/server/index.js");
     expect(bundle.outputFiles.serverApp.include).toContain("dist/server");
-    expect(bundle.outputFiles.staticAssets?.include).toContain("dist/client");
+    expect(bundle.outputFiles.serverApp.include).toContain("dist/client");
   });
 
   it("respects buildDirectory option override", () => {
@@ -98,7 +98,7 @@ describe("generateBundle", () => {
 
     expect(bundle.runConfig.runCommand).toBe("node_modules/.bin/remix-serve custom/server/index.js");
     expect(bundle.outputFiles.serverApp.include).toContain("custom/server");
-    expect(bundle.outputFiles.staticAssets?.include).toContain("custom/client");
+    expect(bundle.outputFiles.serverApp.include).toContain("custom/client");
   });
 
   it("honors legacy remix.config serverBuildPath and assetsBuildDirectory", () => {
@@ -121,7 +121,7 @@ describe("generateBundle", () => {
 
     expect(bundle.runConfig.runCommand).toBe("node_modules/.bin/remix-serve build/index.js");
     expect(bundle.outputFiles.serverApp.include).toContain("build");
-    expect(bundle.outputFiles.staticAssets?.include).toContain("public/build");
+    expect(bundle.outputFiles.serverApp.include).toContain("public/build");
   });
 
   it("supports custom run command", () => {
@@ -275,15 +275,12 @@ describe("serializeBundle", () => {
       },
       outputFiles: {
         serverApp: {
-          include: ["build/server", "package.json", "node_modules"],
-        },
-        staticAssets: {
-          include: ["build/client"],
+          include: ["build/server", "build/client", "package.json", "node_modules"],
         },
       },
       metadata: {
         adapterPackageName: "firemix",
-        adapterVersion: "0.1.1",
+        adapterVersion: "0.1.2",
         framework: "remix",
         frameworkVersion: "2.8.1",
       },
@@ -301,10 +298,10 @@ describe("serializeBundle", () => {
     expect(parsed.runConfig.maxInstances).toBe(10);
     expect(parsed.outputFiles.serverApp.include).toEqual([
       "build/server",
+      "build/client",
       "package.json",
       "node_modules",
     ]);
-    expect(parsed.outputFiles.staticAssets?.include).toEqual(["build/client"]);
     expect(parsed.metadata.adapterPackageName).toBe("firemix");
     expect(parsed.metadata.framework).toBe("remix");
     expect(parsed.metadata.frameworkVersion).toBe("2.8.1");
@@ -328,7 +325,7 @@ describe("serializeBundle", () => {
       },
       metadata: {
         adapterPackageName: "firemix",
-        adapterVersion: "0.1.1",
+        adapterVersion: "0.1.2",
         framework: "remix",
       },
     };
@@ -359,7 +356,7 @@ describe("serializeBundle", () => {
       },
       metadata: {
         adapterPackageName: "firemix",
-        adapterVersion: "0.1.1",
+        adapterVersion: "0.1.2",
         framework: "remix",
         frameworkVersion: undefined,
       },

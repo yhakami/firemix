@@ -71,7 +71,7 @@ build/
 ## Current Issues
 
 1. **Hardcoded paths**: Ignores Remix config overrides (serverBuildPath, buildDirectory)
-2. **Bundle overlap**: Includes build twice (serverApp contains build, staticAssets contains build/client)
+2. **Bundle packaging**: Ensure client assets are included alongside server output so remix-serve can serve them; avoid unsupported staticAssets sections.
 3. **Unfiltered node_modules**: Ships all node_modules including dev tooling
 4. **Missing CLI flags**: No --allow-symlinks flag despite API support
 5. **No existence checks**: Doesn't verify build outputs exist
@@ -162,17 +162,16 @@ outputFiles:
       - build/client      # Already included in serverApp via build/
 ```
 
-**After (clean separation):**
+**After (serves static assets via remix-serve):**
 ```yaml
 outputFiles:
   serverApp:
     include:
-      - build/server      # Server only
+      - build/server
+      - build/client      # Client assets packaged with server
       - package.json
       - node_modules      # Filtered to production deps
-  staticAssets:
-    include:
-      - build/client      # Client only (no overlap)
+  # staticAssets omitted (Firebase App Hosting ignores it)
 ```
 
 ### CLI Improvements

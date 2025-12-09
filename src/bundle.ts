@@ -151,11 +151,12 @@ export function generateBundleWithMetadata(
       // Server app - include the server build directory, package.json, and node_modules
       // Using the directory of the server entry ensures chunks or supporting files are included
       serverApp: {
-        include: [getServerBuildDir(remixConfig.serverBuildPath), "package.json", "node_modules"],
-      },
-      // Static assets - only client build (no overlap with serverApp)
-      staticAssets: {
-        include: [remixConfig.clientBuildDir],
+        include: [
+          getServerBuildDir(remixConfig.serverBuildPath),
+          remixConfig.clientBuildDir,
+          "package.json",
+          "node_modules",
+        ],
       },
     },
     metadata: {
