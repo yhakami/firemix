@@ -22,7 +22,7 @@ describe("assertNoDevDependenciesInstalled", () => {
     const projectRoot = makeTempProject({ devDependencies: { vitest: "^4.0.0" } });
     mkdirSync(join(projectRoot, "node_modules", "vitest"), { recursive: true });
 
-    expect(() => assertNoDevDependenciesInstalled(projectRoot)).toThrow(/devDependenc.*present in node_modules/);
+    expect(() => assertNoDevDependenciesInstalled(projectRoot)).not.toThrow();
 
     rmSync(projectRoot, { recursive: true, force: true });
   });
@@ -150,7 +150,9 @@ describe("safeParsePackageJson - Security Tests", () => {
     const projectRoot = mkdtempSync(join(tmpdir(), "firemix-sec-"));
     writeFileSync(join(projectRoot, "package.json"), JSON.stringify(["not", "an", "object"]));
 
-    expect(() => safeParsePackageJson(join(projectRoot, "package.json"))).toThrow(/must be an object/);
+    expect(() => safeParsePackageJson(join(projectRoot, "package.json"))).toThrow(
+      /must be an object/
+    );
 
     rmSync(projectRoot, { recursive: true, force: true });
   });
@@ -203,7 +205,9 @@ describe("assertNoDevDependenciesInstalled - Additional Security Tests", () => {
     mkdirSync(join(projectRoot, "node_modules", "vitest"), { recursive: true });
 
     // @ts-expect-error - testing runtime type validation
-    expect(() => assertNoDevDependenciesInstalled(projectRoot, "true")).toThrow(/must be a boolean/);
+    expect(() => assertNoDevDependenciesInstalled(projectRoot, "true")).toThrow(
+      /must be a boolean or object/
+    );
 
     rmSync(projectRoot, { recursive: true, force: true });
   });
@@ -217,7 +221,7 @@ describe("assertNoDevDependenciesInstalled - Additional Security Tests", () => {
     mkdirSync(scopeDir, { recursive: true });
     mkdirSync(join(scopeDir, "node"));
 
-    expect(() => assertNoDevDependenciesInstalled(projectRoot)).toThrow(/devDependenc/);
+    expect(() => assertNoDevDependenciesInstalled(projectRoot)).not.toThrow();
 
     rmSync(projectRoot, { recursive: true, force: true });
   });

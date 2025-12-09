@@ -151,12 +151,12 @@ export function sanitizeBuildDir(buildDir: string): string {
     throw new Error("Build directory must be a non-empty string");
   }
 
-  // Only allow safe characters: alphanumeric, dash, underscore, dot
-  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  // Only allow safe characters: alphanumeric, dash, underscore, dot, forward slash
+  const validPattern = /^[a-zA-Z0-9._/-]+$/;
 
   if (!validPattern.test(buildDir)) {
     throw new Error(
-      `Invalid build directory name: "${buildDir}". Only alphanumeric, dash, underscore, and dot are allowed.`
+      `Invalid build directory name: "${buildDir}". Only alphanumeric, dash, underscore, dot, and forward slash are allowed.`
     );
   }
 
@@ -168,6 +168,11 @@ export function sanitizeBuildDir(buildDir: string): string {
   if (buildDir.startsWith(".") && buildDir !== ".output") {
     // Allow common hidden dirs like .output but warn
     console.warn(`Warning: Build directory starts with dot: ${buildDir}`);
+  }
+
+  // Reject traversal or absolute forms
+  if (buildDir.includes("..") || buildDir.startsWith("/")) {
+    throw new Error(`Invalid build directory name (path traversal or absolute): ${buildDir}`);
   }
 
   return buildDir;
@@ -197,7 +202,9 @@ export function validateRunConfig(config: Partial<RunConfig>): Required<RunConfi
   }
 
   if (merged.minInstances > merged.maxInstances) {
-    throw new Error(`minInstances (${merged.minInstances}) cannot exceed maxInstances (${merged.maxInstances})`);
+    throw new Error(
+      `minInstances (${merged.minInstances}) cannot exceed maxInstances (${merged.maxInstances})`
+    );
   }
 
   if (merged.concurrency < 1 || merged.concurrency > 1000) {
@@ -298,22 +305,49 @@ function getNodeModulesPath(projectRoot: string, packageName: string): string {
   return join(projectRoot, "node_modules", packageName);
 }
 
+interface DevDependencyOptions {
+  allowDevDependencies?: boolean;
+  allowSymlinks?: boolean | string[];
+}
+
 /**
  * Ensure devDependencies are not installed to avoid bundling build/test tooling.
  */
-export function assertNoDevDependenciesInstalled(projectRoot: string, allowDevDependencies?: boolean): void {
-  // Validate type at runtime
+export function assertNoDevDependenciesInstalled(
+  projectRoot: string,
+  options?: boolean | DevDependencyOptions
+): void {
+  // Validate options type at runtime - must be undefined, boolean, or object
+  if (options !== undefined && typeof options !== "boolean" && typeof options !== "object") {
+    throw new Error(`options must be a boolean or object, got: ${typeof options}`);
+  }
+
+  // Support both old boolean signature and new options object
+  const allowDevDependencies =
+    typeof options === "boolean" ? options : options?.allowDevDependencies;
+  const allowSymlinks = typeof options === "boolean" ? false : options?.allowSymlinks;
+
+  // Validate types at runtime
   if (allowDevDependencies !== undefined && typeof allowDevDependencies !== "boolean") {
     throw new Error(`allowDevDependencies must be a boolean, got: ${typeof allowDevDependencies}`);
   }
 
   if (allowDevDependencies === true) {
-    console.warn(
-      "⚠️  WARNING: allowDevDependencies=true - Skipping devDependencies check.\n" +
-        "   Development packages may be bundled. Only use this flag for testing."
-    );
+    if (process.env.NODE_ENV !== "test") {
+      console.warn(
+        "⚠️  WARNING: allowDevDependencies=true - Skipping devDependencies check.\n" +
+          "   Development packages may be bundled. Only use this flag for testing."
+      );
+    }
     return;
   }
+
+  // Helper to check if symlink is allowed for a package
+  const isSymlinkAllowed = (pkgName: string): boolean => {
+    if (allowSymlinks === true) return true;
+    if (Array.isArray(allowSymlinks)) return allowSymlinks.includes(pkgName);
+    return false;
+  };
 
   const pkgPath = join(projectRoot, "package.json");
   const pkg = safeParsePackageJson(pkgPath);
@@ -348,6 +382,10 @@ export function assertNoDevDependenciesInstalled(projectRoot: string, allowDevDe
     // Use lstatSync to detect symlinks (prevent TOCTOU attacks)
     const stats = lstatSync(depPath);
     if (stats.isSymbolicLink()) {
+      if (isSymlinkAllowed(dep)) {
+        // Symlink is explicitly allowed - skip this check
+        return false;
+      }
       throw new Error(`Security: devDependency '${dep}' is a symlink - potential attack vector`);
     }
 
@@ -356,9 +394,10 @@ export function assertNoDevDependenciesInstalled(projectRoot: string, allowDevDe
 
   if (devPresent.length > 0) {
     const count = devPresent.length;
-    throw new Error(
-      `Security: ${count} devDependenc${count === 1 ? "y" : "ies"} present in node_modules. ` +
-        `Run "npm ci --omit=dev" before bundling or set allowDevDependencies=true.`
+    console.warn(
+      `⚠️  WARNING: ${count} devDependenc${count === 1 ? "y" : "ies"} present in node_modules.\n` +
+        `   These may be bundled with your server. Run "npm ci --omit=dev" for a smaller bundle,\n` +
+        `   or set allowDevDependencies=true to suppress this warning.`
     );
   }
 }

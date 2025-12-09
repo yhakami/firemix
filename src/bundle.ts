@@ -3,73 +3,145 @@
  * Generates the .apphosting/bundle.yaml file for Firebase App Hosting
  */
 
-import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { BundleYaml, FiremixConfig } from "./types.js";
+import { resolveRemixConfig, applyConfigOverrides } from "./config.js";
+import { getAdapterVersion, getResolvedRemixVersion } from "./version.js";
+import { verifyBuildOutput, formatVerificationResult } from "./verify.js";
 import {
   assertNoDevDependenciesInstalled,
-  checkFileSize,
-  safeParsePackageJson,
-  sanitizeBuildDir,
   validateRunConfig,
+  sanitizeBuildDir,
 } from "./validation.js";
+
+import type { BundleYaml, FiremixConfig, ResolvedRemixConfig } from "./types.js";
 
 // ESM equivalent of __dirname
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Get the adapter version from package.json
+ * Generate the run command for the server
+ * Quotes paths if they contain spaces
  */
-function getAdapterVersion(): string {
-  try {
-    const pkgPath = join(__dirname, "..", "package.json");
-    checkFileSize(pkgPath);
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { version?: string };
-    return pkg.version || "0.1.0";
-  } catch {
-    return "0.1.0";
+function generateRunCommand(config: ResolvedRemixConfig, customCommand?: string): string {
+  if (customCommand) {
+    return customCommand;
   }
+
+  const serverPath = config.serverBuildPath;
+
+  // Quote path if it contains spaces
+  if (serverPath.includes(" ")) {
+    return `node "${serverPath}"`;
+  }
+
+  return `node ${serverPath}`;
 }
 
 /**
- * Detect Remix version from the project
+ * Derive the directory that contains the server build entry
  */
-function getRemixVersion(projectRoot: string): string | undefined {
-  try {
-    const pkgPath = join(projectRoot, "package.json");
-    const pkg = safeParsePackageJson(pkgPath);
+function getServerBuildDir(serverBuildPath: string): string {
+  const idx = serverBuildPath.lastIndexOf("/");
+  if (idx === -1) return ".";
+  return serverBuildPath.slice(0, idx);
+}
 
-    const version =
-      pkg.dependencies?.["@remix-run/node"] ||
-      pkg.dependencies?.["@remix-run/react"] ||
-      pkg.devDependencies?.["@remix-run/dev"];
-
-    return version;
-  } catch (error) {
-    console.warn(`Failed to read Remix version: ${error instanceof Error ? error.message : "Unknown error"}`);
-    return undefined;
-  }
+/**
+ * Result of bundle generation
+ */
+export interface GenerateBundleResult {
+  /** The generated bundle configuration */
+  bundle: BundleYaml;
+  /** Resolved Remix configuration used */
+  remixConfig: ResolvedRemixConfig;
+  /** Any warnings generated during bundle creation */
+  warnings: string[];
 }
 
 /**
  * Generate the bundle.yaml content
+ *
+ * @param projectRoot - Project root directory
+ * @param config - Firemix configuration options
+ * @returns Generated bundle and metadata
  */
 export function generateBundle(projectRoot: string, config: FiremixConfig = {}): BundleYaml {
-  // Validate and sanitize buildDir
-  const buildDir = sanitizeBuildDir(config.buildDir || "build");
+  const result = generateBundleWithMetadata(projectRoot, config);
+  return result.bundle;
+}
 
-  // Validate runConfig numeric values
+/**
+ * Generate the bundle.yaml content with full metadata
+ *
+ * @param projectRoot - Project root directory
+ * @param config - Firemix configuration options
+ * @returns Generated bundle, resolved config, and warnings
+ */
+export function generateBundleWithMetadata(
+  projectRoot: string,
+  config: FiremixConfig = {}
+): GenerateBundleResult {
+  const warnings: string[] = [];
+
+  // 1. Resolve Remix configuration from project files
+  let remixConfig = resolveRemixConfig(projectRoot);
+
+  // 2. Apply user overrides (buildDir for backwards compatibility, buildDirectory preferred)
+  const buildDirectory = config.buildDirectory || config.buildDir;
+  if (buildDirectory) {
+    // Validate the build directory name
+    sanitizeBuildDir(buildDirectory);
+    remixConfig = applyConfigOverrides(remixConfig, {
+      buildDirectory,
+      serverBuildFile: config.serverBuildFile,
+    });
+  } else if (config.serverBuildFile) {
+    remixConfig = applyConfigOverrides(remixConfig, {
+      serverBuildFile: config.serverBuildFile,
+    });
+  }
+
+  // 3. Verify build output exists (if enabled, default true)
+  const shouldVerify = config.verify !== false;
+  if (shouldVerify) {
+    const verification = verifyBuildOutput(projectRoot, remixConfig);
+
+    if (!verification.valid) {
+      throw new Error(`Build verification failed:\n${formatVerificationResult(verification)}`);
+    }
+
+    // Collect warnings
+    warnings.push(...verification.warnings);
+  }
+
+  // 4. Validate runConfig numeric values
   const runConfig = validateRunConfig(config.runConfig || {});
 
-  // Ensure we are not packaging development dependencies unless explicitly allowed
-  assertNoDevDependenciesInstalled(projectRoot, config.allowDevDependencies);
+  // 5. Check for dev dependencies (unless explicitly allowed)
+  assertNoDevDependenciesInstalled(projectRoot, {
+    allowDevDependencies: config.allowDevDependencies,
+    allowSymlinks: config.allowSymlinks,
+  });
 
-  return {
+  // 6. Get version information
+  const adapterVersion = getAdapterVersion(join(__dirname, ".."));
+  const remixVersion = getResolvedRemixVersion(projectRoot);
+
+  // Warn if Remix version couldn't be resolved
+  if (!remixVersion) {
+    warnings.push(
+      "Could not resolve Remix version from node_modules. " +
+        "The frameworkVersion field will be omitted from bundle.yaml."
+    );
+  }
+
+  // 7. Generate the bundle
+  const bundle: BundleYaml = {
     version: "v1",
     runConfig: {
-      runCommand: `node ${buildDir}/server/index.js`,
+      runCommand: generateRunCommand(remixConfig, config.runCommand),
       concurrency: runConfig.concurrency,
       cpu: runConfig.cpu,
       memoryMiB: runConfig.memoryMiB,
@@ -77,74 +149,53 @@ export function generateBundle(projectRoot: string, config: FiremixConfig = {}):
       maxInstances: runConfig.maxInstances,
     },
     outputFiles: {
+      // Server app - include the server build directory, package.json, and node_modules
+      // Using the directory of the server entry ensures chunks or supporting files are included
       serverApp: {
-        include: [buildDir, "node_modules", "package.json"],
+        include: [getServerBuildDir(remixConfig.serverBuildPath), "package.json", "node_modules"],
       },
+      // Static assets - only client build (no overlap with serverApp)
       staticAssets: {
-        include: [`${buildDir}/client`],
+        include: [remixConfig.clientBuildDir],
       },
     },
     metadata: {
       adapterPackageName: "firemix",
-      adapterVersion: getAdapterVersion(),
+      adapterVersion,
       framework: "remix",
-      frameworkVersion: getRemixVersion(projectRoot),
+      frameworkVersion: remixVersion,
     },
+  };
+
+  return {
+    bundle,
+    remixConfig,
+    warnings,
   };
 }
 
-/**
- * Escape a string for safe YAML output
- */
-function escapeYamlValue(value: string): string {
-  // If the value contains special characters, quote it
-  if (/[:#\[\]{},"'|>&*!?\\]/.test(value) || value.includes("\n")) {
-    // Escape backslashes and double quotes, then wrap in double quotes
-    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-  }
-  return value;
-}
+import { dump } from "js-yaml";
 
 /**
  * Serialize bundle to YAML string
  */
 export function serializeBundle(bundle: BundleYaml): string {
-  const lines: string[] = [
-    "# Generated by Firemix - Firebase App Hosting adapter for Remix",
-    "# https://github.com/yhakami/firemix",
-    "",
-    `version: ${bundle.version}`,
-    "",
-    "runConfig:",
-    `  runCommand: ${escapeYamlValue(bundle.runConfig.runCommand)}`,
-    `  concurrency: ${bundle.runConfig.concurrency}`,
-    `  cpu: ${bundle.runConfig.cpu}`,
-    `  memoryMiB: ${bundle.runConfig.memoryMiB}`,
-    `  minInstances: ${bundle.runConfig.minInstances}`,
-    `  maxInstances: ${bundle.runConfig.maxInstances}`,
-    "",
-    "outputFiles:",
-    "  serverApp:",
-    "    include:",
-    ...bundle.outputFiles.serverApp.include.map((p) => `      - ${escapeYamlValue(p)}`),
-  ];
+  const yaml = dump(bundle, {
+    lineWidth: -1, // Don't wrap lines
+    quotingType: '"', // Prefer double quotes
+    noRefs: true, // Don't use aliases
+  });
 
-  if (bundle.outputFiles.staticAssets) {
-    lines.push("  staticAssets:", "    include:");
-    lines.push(...bundle.outputFiles.staticAssets.include.map((p) => `      - ${escapeYamlValue(p)}`));
-  }
+  return `# Generated by Firemix - Firebase App Hosting adapter for Remix
+# https://github.com/yhakami/firemix
 
-  lines.push(
-    "",
-    "metadata:",
-    `  adapterPackageName: ${escapeYamlValue(bundle.metadata.adapterPackageName)}`,
-    `  adapterVersion: ${escapeYamlValue(bundle.metadata.adapterVersion)}`,
-    `  framework: ${escapeYamlValue(bundle.metadata.framework)}`
-  );
+${yaml}`;
+}
 
-  if (bundle.metadata.frameworkVersion) {
-    lines.push(`  frameworkVersion: ${escapeYamlValue(bundle.metadata.frameworkVersion)}`);
-  }
-
-  return lines.join("\n") + "\n";
+/**
+ * Generate and serialize bundle in one step (convenience function)
+ */
+export function generateBundleYaml(projectRoot: string, config: FiremixConfig = {}): string {
+  const bundle = generateBundle(projectRoot, config);
+  return serializeBundle(bundle);
 }
